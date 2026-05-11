@@ -1,0 +1,10 @@
+{
+  "name": "finlock-api",
+  "version": "1.0.0",
+  "description": "FinLock Backend API",
+  "main": "server.js",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^4.22.2"
+  }
+}

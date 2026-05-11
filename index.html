@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinLock - Your money's immune system.</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="logo">
+                <span class="icon">🛡️</span>
+                <h1>FinLock</h1>
+            </div>
+            <p class="tagline">Your money's immune system.</p>
+        </header>
+
+        <main class="dashboard">
+            <section class="card twin-card">
+                <div class="twin-header">
+                    <h2>🤖 Financial Twin</h2>
+                    <div class="mode-toggle">
+                        <span class="mode-label active">Bhai Mode</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="mode-toggle">
+                            <span class="slider"></span>
+                        </label>
+                        <span class="mode-label">Formal Mode</span>
+                    </div>
+                </div>
+                <div class="chat-window" id="twin-chat"></div>
+            </section>
+
+            <section class="card immunity-card">
+                <h2>🦠 Immunity Score</h2>
+                <div class="score-display">
+                    <div class="progress-ring">
+                        <svg class="progress-svg" viewBox="0 0 120 120">
+                            <circle class="progress-bg" cx="60" cy="60" r="54"></circle>
+                            <circle class="progress-bar" id="immunity-progress" cx="60" cy="60" r="54"></circle>
+                        </svg>
+                        <div class="score-content">
+                            <div class="score-number" id="immunity-score-text">0</div>
+                            <div class="score-status" id="immunity-status">CRITICAL</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card vault-card">
+                <div class="vault-header">
+                    <h2>🔒 Commitment Vault</h2>
+                    <button id="simulate-salary-btn" class="salary-btn">💰 Simulate Salary Day</button>
+                </div>
+                <div class="vault-stats">
+                    <div class="stat">
+                        <span>Safe to Spend</span>
+                        <h3 id="safe-to-spend" class="safe-text">₹0</h3>
+                    </div>
+                    <div class="stat">
+                        <span>Locked Away</span>
+                        <h3 id="total-locked" class="locked-text">₹0</h3>
+                    </div>
+                </div>
+                <div class="commitments-list" id="commitments-list"></div>
+            </section>
+
+            <section class="card dna-card">
+                <h2>🧬 Spending DNA</h2>
+                <div class="dna-tags" id="dna-tags"></div>
+            </section>
+
+            <section class="card guard-card">
+                <h2>🚨 Pre-Regret Guard (Demo)</h2>
+                <div class="guard-demo">
+                    <input type="text" id="spend-merchant" placeholder="Merchant (e.g. Uber Eats)" />
+                    <input type="number" id="spend-amount" placeholder="Amount (₹)" />
+                    <select id="spend-category">
+                        <option value="Food">Food</option>
+                        <option value="Shopping">Shopping</option>
+                        <option value="Entertainment">Entertainment</option>
+                        <option value="Groceries">Groceries</option>
+                        <option value="Other">Other</option>
+                    </select>
+                    <button id="btn-attempt-spend">Attempt Spend</button>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <button id="reset-demo-btn" class="reset-btn">🔄 Reset Demo</button>
+    <div id="toast-container" class="toast-container"></div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
