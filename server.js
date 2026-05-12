@@ -258,6 +258,176 @@ const ImmunityScore = {
     }
 };
 
+// ===== GOAL VAULT =====
+const GoalVault = {
+    initialize: (state) => {
+        if (!state.goals) {
+            state.goals = [
+                {
+                    id: "g1",
+                    name: "Dream Bike (Royal Enfield)",
+                    target_amount: 80000,
+                    current_amount: 12000,
+                    deadline_months: 6,
+                    priority: "high",
+                    locked: true,
+                    status: "on_track",
+                    penalty_message: "Touch this, bike delayed by 2 months"
+                },
+                {
+                    id: "g2",
+                    name: "Emergency Fund (3 months)",
+                    target_amount: 50000,
+                    current_amount: 8000,
+                    deadline_months: 12,
+                    priority: "high",
+                    locked: true,
+                    status: "on_track",
+                    penalty_message: "Medical emergency = loan at 18% interest"
+                },
+                {
+                    id: "g3",
+                    name: "Home Down Payment",
+                    target_amount: 300000,
+                    current_amount: 45000,
+                    deadline_months: 36,
+                    priority: "medium",
+                    locked: true,
+                    status: "on_track",
+                    penalty_message: "Rent forever. No equity."
+                },
+                {
+                    id: "g4",
+                    name: "Solo Trip to Manali",
+                    target_amount: 25000,
+                    current_amount: 3000,
+                    deadline_months: 4,
+                    priority: "low",
+                    locked: true,
+                    status: "on_track",
+                    penalty_message: "Another year of Instagram scrolling"
+                }
+            ];
+        }
+        // calculate monthly_needed and preserve original total months
+        state.goals.forEach(g => {
+            // Preserve original total months if not already stored
+            if (!g.total_months) {
+                g.total_months = g.deadline_months;
+            }
+            const remaining = g.target_amount - (g.current_amount || 0);
+            g.monthly_needed = Math.ceil(remaining / g.deadline_months);
+        });
+        if (!state.goal_settings) {
+            state.goal_settings = {
+                auto_lock_on_salary: true,
+                emergency_buffer: 5000
+            };
+        }
+        return state.goals;
+    }
+};
+
+// Extend GoalVault with salary locking logic
+GoalVault.lockGoalsOnSalary = (state, safeToSpend) => {
+    // Ensure goals are initialized and monthly_needed calculated
+    GoalVault.initialize(state);
+
+    const safe = safeToSpend !== undefined ? safeToSpend : (state.vault && state.vault.safe_to_spend) || 0;
+    const limit = safe * 0.6;
+
+    // Find emergency fund goal (keep fully funded)
+    const emergencyGoal = state.goals.find(g => /emergency/i.test(g.name));
+    let allocated = 0;
+    const funded = [];
+    let warning = null;
+
+    if (emergencyGoal) {
+        const needed = emergencyGoal.monthly_needed;
+        emergencyGoal.current_amount = (emergencyGoal.current_amount || 0) + needed;
+        allocated += needed;
+        funded.push({ name: emergencyGoal.name, locked: needed, progress: `${Math.round((emergencyGoal.current_amount / emergencyGoal.target_amount) * 100)}%` });
+    }
+
+    // Sort remaining goals by priority (high -> medium -> low)
+    const priorityOrder = { high: 1, medium: 2, low: 3 };
+    const remainingGoals = state.goals.filter(g => g !== emergencyGoal).sort((a, b) => {
+        return (priorityOrder[a.priority] || 4) - (priorityOrder[b.priority] || 4);
+    });
+
+    for (const g of remainingGoals) {
+        if (allocated >= limit) break;
+        const needed = g.monthly_needed;
+        const canAllocate = Math.min(needed, limit - allocated);
+        if (canAllocate > 0) {
+            g.current_amount = (g.current_amount || 0) + canAllocate;
+            allocated += canAllocate;
+            funded.push({ name: g.name, locked: canAllocate, progress: `${Math.round((g.current_amount / g.target_amount) * 100)}%` });
+        }
+    }
+
+    // Determine if any low‑priority goals were left unfunded
+    const lowUnfunded = state.goals.filter(g => g.priority === 'low' && !funded.find(f => f.name === g.name));
+    if (lowUnfunded.length) {
+        warning = "Low priority goals underfunded";
+    }
+
+    const safeAfter = safe - allocated;
+    state.safe_after_goals = safeAfter;
+
+    return {
+        total_locked_for_goals: allocated,
+        goals_funded: funded,
+        safe_after_goals: safeAfter,
+        warning
+    };
+};
+
+// ===== GOAL VAULT PROGRESS CALCULATION =====
+GoalVault.calculateProgress = (state) => {
+    // Ensure goals are initialized (monthly_needed and total_months present)
+    GoalVault.initialize(state);
+    
+    let totalProgressSum = 0;
+    let totalMonthlyNeeded = 0;
+    
+    const results = state.goals.map(g => {
+        const progress = (g.current_amount / g.target_amount) * 100;
+        totalProgressSum += progress;
+        totalMonthlyNeeded += (g.monthly_needed || 0);
+        
+        const totalMonths = g.total_months || g.deadline_months;
+        const monthsRemaining = g.deadline_months;
+        const monthsPassed = totalMonths - monthsRemaining;
+        const expected = (monthsPassed / totalMonths) * 100;
+        let status = 'missed';
+        let color = '#ff3366'; // red
+        if (progress >= expected) {
+            status = 'on_track';
+            color = '#00ff88'; // green
+        } else if (progress >= expected * 0.5) {
+            status = 'at_risk';
+            color = '#ffcc00'; // yellow
+        }
+        return {
+            id: g.id,
+            name: g.name,
+            progress_percent: Math.round(progress * 100) / 100,
+            status,
+            color,
+            months_remaining: monthsRemaining
+        };
+    });
+    
+    const overallProgress = state.goals.length ? totalProgressSum / state.goals.length : 0;
+    
+    return {
+        goals: results,
+        total_monthly_needed: totalMonthlyNeeded,
+        overall_progress: Math.round(overallProgress * 100) / 100
+    };
+};
+
 // ===== BHAI MODE VOICE =====
 const BhaiModeVoice = {
     generate: (state, { roast_level, dna_trigger, context }) => {
@@ -301,13 +471,29 @@ const FinancialTwin = {
         const dna = state.dna;
         const streak = state.immunity.streak_days || 0;
         let roastLevel = state.twin.roast_level;
-
+        
+        // Goal context for twin
+        const goals = state.goals || [];
+        const activeGoals = goals.filter(g => g.status !== 'completed');
+        state.twin.active_goals_count = activeGoals.length;
+        const progressVals = goals.map(g => (g.current_amount / g.target_amount) * 100);
+        state.twin.total_goal_progress = progressVals.length ? (progressVals.reduce((a,b)=>a+b,0) / progressVals.length) : 0;
+        const remainingMonths = activeGoals.map(g => {
+            return { name: g.name, months: g.deadline_months - (g.total_months - g.deadline_months) };
+        });
+        if (remainingMonths.length > 0) {
+            remainingMonths.sort((a, b) => a.months - b.months);
+            state.twin.next_milestone = `${remainingMonths[0].name} (${remainingMonths[0].months} months)`;
+        } else {
+            state.twin.next_milestone = null;
+        }
+        
         const recentRejects = state.twin.acceptances.slice(-2).filter(a => a === false).length;
         const recentAccepts = state.twin.acceptances.slice(-2).filter(a => a === true).length;
         if (recentRejects === 2) roastLevel = Math.max(1, roastLevel - 1);
         if (recentAccepts === 2) roastLevel = Math.min(5, roastLevel + 1);
-
-        let tone = "neutral", message = "", actions = [];
+        
+        let tone = "neutral", message = "", actions = []; 
         const isBhai = (persona || state.user.persona_preference).toLowerCase() === 'bhai';
 
         if (streak > 7 && trigger_event !== 'guard_blocked' && trigger_event !== 'score_drop') {
@@ -340,6 +526,31 @@ const FinancialTwin = {
                     tone = "celebrate";
                     if (isBhai) message = `Kya baat hai! ${streak} din ka streak.`;
                     else message = `Congratulations on your ${streak}-day streak!`;
+                    break;
+                case 'goal_created':
+                    tone = "neutral";
+                    if (isBhai) message = "Sapna dekhna free hai, pura karna ₹4,500/month.";
+                    else message = "Goal established. Monthly commitment: ₹4,500. Auto-lock enabled.";
+                    break;
+                case 'goal_funded':
+                    tone = "celebrate";
+                    if (isBhai) message = "Bike fund mein ₹4,500 locked. 21% complete. On track!";
+                    else message = "Goal funded. 21% complete. On track.";
+                    break;
+                case 'goal_at_risk':
+                    tone = "concern";
+                    if (isBhai) message = "Bike ka sapna ghaas charne gaya. Focus kar bhai.";
+                    else message = "Progress deviation detected. Recommend increasing allocation.";
+                    break;
+                case 'goal_completed':
+                    tone = "celebrate";
+                    if (isBhai) message = "Aukaat dikha di! Ab road pe dikhna mat.";
+                    else message = "Congratulations. Target achieved. Consider next goal.";
+                    break;
+                case 'goal_withdraw_penalty':
+                    tone = "roast";
+                    if (isBhai) message = "₹5k nikaal liya? Bike 1 month late. Soch le.";
+                    else message = "Withdrawal processed. Goal delayed by 1 month.";
                     break;
                 default:
                     tone = "neutral";
@@ -408,7 +619,64 @@ app.get('/finlock/user/state', (req, res) => {
     res.json(state);
 });
 
-app.get('/finlock/demo/reset', (req, res) => {
+// ===== GOAL VAULT ENDPOINT =====
+app.post('/finlock/goals/init', (req, res) => {
+    const { user_id } = req.body;
+    let state = usersDb[user_id];
+    if (!state) return res.status(404).json({ error: "User not found" });
+    const goals = GoalVault.initialize(state);
+    res.json({ goals, goal_settings: state.goal_settings });
+});
+
+// ===== GOAL VAULT LOCK ON SALARY =====
+app.post('/finlock/goals/lock', (req, res) => {
+    const { user_id, salary_amount, safe_to_spend_after_commitments } = req.body;
+    let state = usersDb[user_id];
+    if (!state) return res.status(404).json({ error: "User not found" });
+    // Ensure safe_to_spend is available; if not, compute via CommitmentVault
+    let safe = safe_to_spend_after_commitments;
+    if (safe === undefined) {
+        const vaultResult = CommitmentVault.calculateVault(state, salary_amount || state.user.salary);
+        safe = vaultResult.safe_to_spend;
+    }
+    const result = GoalVault.lockGoalsOnSalary(state, safe);
+    res.json(result);
+});
+
+// ===== GOAL VAULT WITHDRAW =====
+app.post('/finlock/goals/withdraw', (req, res) => {
+    const { user_id, goal_id, amount } = req.body;
+    let state = usersDb[user_id];
+    if (!state) return res.status(404).json({ error: "User not found" });
+    
+    if (!state.goals) return res.status(404).json({ error: "No goals found" });
+    const goal = state.goals.find(g => g.id === goal_id);
+    if (!goal) return res.status(404).json({ error: "Goal not found" });
+
+    if (goal.locked === false) {
+        goal.current_amount -= amount;
+        const percent = Math.round((goal.current_amount / goal.target_amount) * 100 * 100) / 100;
+        return res.json({ allowed: true, new_progress: percent, new_status: goal.status });
+    }
+
+    if (goal.locked === true) {
+        if (amount > (goal.current_amount || 0)) {
+            return res.json({ allowed: false, penalty_message: "Amount exceeds saved balance." });
+        }
+        const delay_months = Math.ceil(amount / (goal.monthly_needed || 1));
+        const new_amount = goal.current_amount - amount;
+        const percent = Math.round((new_amount / goal.target_amount) * 100 * 100) / 100;
+        return res.json({
+            allowed: false,
+            penalty_message: `Withdraw ₹${amount}? ${goal.name} delayed by ${delay_months} month(s). ${goal.penalty_message}`,
+            confirm_required: true,
+            new_progress: percent,
+            new_status: "at_risk"
+        });
+    }
+});
+
+app.post('/finlock/reset', (req, res) => {
     usersDb["rahul_demo_001"] = generateMockData();
     res.json({ status: "reset" });
 });

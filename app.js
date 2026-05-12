@@ -391,6 +391,90 @@ const FinancialTwin = {
     }
 };
 
+const GoalVault = {
+    initialize: () => {
+        if (!state.goals) {
+            state.goals = [
+                {
+                    id: "g1", name: "Dream Bike (Royal Enfield)", target_amount: 80000, current_amount: 12000,
+                    deadline_months: 6, priority: "high", locked: true, status: "on_track", penalty_message: "Touch this, bike delayed by 2 months"
+                },
+                {
+                    id: "g2", name: "Emergency Fund (3 months)", target_amount: 50000, current_amount: 8000,
+                    deadline_months: 12, priority: "high", locked: true, status: "on_track", penalty_message: "Medical emergency = loan at 18% interest"
+                },
+                {
+                    id: "g3", name: "Home Down Payment", target_amount: 300000, current_amount: 45000,
+                    deadline_months: 36, priority: "medium", locked: true, status: "on_track", penalty_message: "Rent forever. No equity."
+                },
+                {
+                    id: "g4", name: "Solo Trip to Manali", target_amount: 25000, current_amount: 3000,
+                    deadline_months: 4, priority: "low", locked: true, status: "on_track", penalty_message: "Another year of Instagram scrolling"
+                }
+            ];
+            state.goal_settings = { auto_lock_on_salary: true, emergency_buffer: 5000 };
+            saveState();
+        }
+        
+        state.goals.forEach(g => {
+            if (!g.total_months) g.total_months = g.deadline_months;
+            const remaining = g.target_amount - (g.current_amount || 0);
+            g.monthly_needed = Math.ceil(remaining / g.deadline_months);
+        });
+        
+        return state.goals;
+    },
+    calculateProgress: () => {
+        GoalVault.initialize();
+        let totalProgressSum = 0;
+        let totalMonthlyNeeded = 0;
+        
+        const results = state.goals.map(g => {
+            const progress = (g.current_amount / g.target_amount) * 100;
+            totalProgressSum += progress;
+            totalMonthlyNeeded += (g.monthly_needed || 0);
+            
+            const totalMonths = g.total_months || g.deadline_months;
+            const monthsRemaining = g.deadline_months;
+            const monthsPassed = totalMonths - monthsRemaining;
+            const expected = (monthsPassed / totalMonths) * 100;
+            let status = 'missed';
+            let color = '#ff3366'; // red
+            if (progress >= expected) {
+                status = 'on_track';
+                color = '#00ff88'; // green
+            } else if (progress >= expected * 0.5) {
+                status = 'at_risk';
+                color = '#ffcc00'; // yellow
+            }
+            g.status = status;
+            return {
+                id: g.id,
+                name: g.name,
+                progress_percent: Math.round(progress * 100) / 100,
+                status,
+                color,
+                months_remaining: monthsRemaining,
+                target_amount: g.target_amount,
+                current_amount: g.current_amount,
+                monthly_needed: g.monthly_needed,
+                locked: g.locked,
+                penalty_message: g.penalty_message
+            };
+        });
+        
+        const overallProgress = state.goals.length ? totalProgressSum / state.goals.length : 0;
+        
+        return {
+            goals: results,
+            total_monthly_needed: totalMonthlyNeeded,
+            overall_progress: Math.round(overallProgress * 100) / 100
+        };
+    }
+};
+
+let currentWithdrawGoalId = null;
+
 function render() {
     const progressBar = document.getElementById('immunity-progress');
     const scoreText = document.getElementById('immunity-score-text');
@@ -439,6 +523,59 @@ function render() {
     dnaTags.innerHTML = Object.entries(state.dna).map(([key, value]) => {
         const formattedKey = key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
         return `<div class="dna-tag ${value ? 'active' : ''}">${formattedKey}</div>`;
+    }).join('');
+
+    // Render Goal Vault
+    const goalData = GoalVault.calculateProgress();
+    
+    document.getElementById('goal-overall-progress').style.width = `${goalData.overall_progress}%`;
+    document.getElementById('goal-overall-text').textContent = `${goalData.overall_progress}% Overall Progress`;
+    document.getElementById('goal-monthly-needed').textContent = `₹${goalData.total_monthly_needed.toLocaleString()}`;
+    document.getElementById('goal-active-count').textContent = goalData.goals.filter(g => g.status !== 'completed').length;
+    
+    const safeAfterGoals = state.vault.safe_to_spend - goalData.total_monthly_needed;
+    document.getElementById('goal-safe-after').textContent = `₹${safeAfterGoals.toLocaleString()}`;
+    
+    const goalsGrid = document.getElementById('goals-grid');
+    goalsGrid.innerHTML = goalData.goals.map(g => {
+        const pCircumference = 2 * Math.PI * 24;
+        const pOffset = pCircumference - (Math.min(100, g.progress_percent) / 100) * pCircumference;
+        return `
+        <div class="goal-item">
+            <div class="goal-item-header">
+                <div class="goal-info">
+                    <h3>${g.name}</h3>
+                    <p>Target: ₹${g.target_amount.toLocaleString()}</p>
+                </div>
+                <div class="goal-status-badge ${g.status}">
+                    ${g.locked ? '🔒' : ''} ${g.status.replace('_', ' ')}
+                </div>
+            </div>
+            <div class="goal-progress-section">
+                <div class="goal-ring-container">
+                    <svg class="goal-svg" viewBox="0 0 60 60">
+                        <circle class="goal-ring-bg" cx="30" cy="30" r="24"></circle>
+                        <circle class="goal-ring-bar" cx="30" cy="30" r="24" stroke="${g.color}" stroke-dasharray="${pCircumference}" stroke-dashoffset="${pOffset}"></circle>
+                    </svg>
+                    <div class="goal-ring-text">${Math.round(g.progress_percent)}%</div>
+                </div>
+                <div class="goal-details">
+                    <div class="goal-detail-row">
+                        <span>Current</span>
+                        <strong style="color:var(--text-primary)">₹${g.current_amount.toLocaleString()}</strong>
+                    </div>
+                    <div class="goal-detail-row">
+                        <span>Monthly Needed</span>
+                        <strong>₹${g.monthly_needed.toLocaleString()}</strong>
+                    </div>
+                </div>
+            </div>
+            <div class="goal-actions">
+                <span class="months-badge">${g.months_remaining} months left</span>
+                <button class="withdraw-btn" onclick="openWithdrawModal('${g.id}')">Withdraw</button>
+            </div>
+        </div>
+        `;
     }).join('');
 }
 
@@ -654,3 +791,88 @@ ImmunityScore.evaluate({ user_id: state.user.id, event_type: 'none' });
 render();
 document.getElementById('twin-chat').innerHTML = '';
 FinancialTwin.speak(state.twin.last_message, "twin");
+
+// GoalVault Actions
+window.openWithdrawModal = (goalId) => {
+    currentWithdrawGoalId = goalId;
+    const goal = state.goals.find(g => g.id === goalId);
+    if(!goal) return;
+    
+    // For demo purposes, assuming a fixed 5000 withdrawal or remaining amount
+    const withdrawAmount = Math.min(5000, goal.current_amount); 
+    if (withdrawAmount === 0) {
+        showToast("No funds available to withdraw.");
+        return;
+    }
+    
+    document.getElementById('withdraw-modal-text').innerHTML = `Are you sure you want to withdraw <strong>₹${withdrawAmount}</strong> from <strong>${goal.name}</strong>?`;
+    
+    const penaltyContainer = document.getElementById('withdraw-penalty-container');
+    const penaltyText = document.getElementById('withdraw-penalty-text');
+    
+    if (goal.locked) {
+        const delay_months = Math.ceil(withdrawAmount / (goal.monthly_needed || 1));
+        penaltyContainer.style.display = 'block';
+        penaltyText.innerHTML = `⚠️ Penalty! ${goal.name} delayed by ${delay_months} month(s).<br><br><em>${goal.penalty_message}</em>`;
+        document.getElementById('btn-confirm-withdraw').textContent = 'Confirm Penalty & Withdraw';
+    } else {
+        penaltyContainer.style.display = 'none';
+        document.getElementById('btn-confirm-withdraw').textContent = 'Confirm Withdraw';
+    }
+    
+    document.getElementById('withdraw-modal').classList.add('active');
+};
+
+document.getElementById('btn-cancel-withdraw').addEventListener('click', () => {
+    document.getElementById('withdraw-modal').classList.remove('active');
+    currentWithdrawGoalId = null;
+});
+
+document.getElementById('btn-confirm-withdraw').addEventListener('click', () => {
+    if(!currentWithdrawGoalId) return;
+    const goal = state.goals.find(g => g.id === currentWithdrawGoalId);
+    
+    if(goal) {
+        const amount = Math.min(5000, goal.current_amount);
+        goal.current_amount -= amount;
+        
+        // Trigger Twin message
+        const delay_months = Math.ceil(amount / (goal.monthly_needed || 1));
+        const twinResponse = FinancialTwin.generateResponse({
+            user_id: state.user.id,
+            persona: state.user.persona_preference,
+            trigger_event: 'goal_withdraw_penalty',
+            context: { amount, name: goal.name, delay_months }
+        });
+        FinancialTwin.speak(twinResponse.message, "twin");
+        
+        saveState();
+        showToast(`Withdrew ₹${amount} from ${goal.name}`);
+    }
+    
+    document.getElementById('withdraw-modal').classList.remove('active');
+    currentWithdrawGoalId = null;
+});
+
+// Auto-lock toggle handling
+const autoLockToggle = document.getElementById('goal-autolock-toggle');
+if(autoLockToggle) {
+    autoLockToggle.checked = state.goal_settings?.auto_lock_on_salary ?? true;
+    autoLockToggle.addEventListener('change', (e) => {
+        if(!state.goal_settings) state.goal_settings = {};
+        state.goal_settings.auto_lock_on_salary = e.target.checked;
+        saveState();
+        
+        if(!e.target.checked) {
+            showToast("⚠️ Warning: Disabling auto-lock may derail goals");
+            // Ask Twin to warn
+            const twinResponse = FinancialTwin.generateResponse({
+                user_id: state.user.id,
+                persona: state.user.persona_preference,
+                trigger_event: 'guard_warned',
+                context: { reason: "Goal auto-lock disabled", suggested_action: "Turn it back on to secure your future." }
+            });
+            FinancialTwin.speak(twinResponse.message, "twin");
+        }
+    });
+}
